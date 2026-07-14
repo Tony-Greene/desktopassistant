@@ -1,0 +1,424 @@
+import datetime
+import speech_recognition as sr
+import pyttsx3
+import pywhatkit
+import wikipedia
+import webbrowser
+import json
+import os
+import random
+import pyaudio
+
+# Initialize text-to-speech engine
+engine = pyttsx3.init()
+engine.setProperty('rate', 160)
+voices = engine.getProperty('voices')
+
+# SELECT YOUR VOICE (Change the index to try different voices)
+# 0 = Usually male voice | 1 = Usually female voice
+# Run the voice adjustment tool to see all available voices
+VOICE_INDEX = 0  
+engine.setProperty('voice', voices[VOICE_INDEX].id)
+
+# SPEAKING RATE (words per minute)
+# Slow: 100-130 | Normal: 150-170 | Fast: 180-220
+SPEAKING_RATE = 200 
+
+# VOLUME (0.0 to 1.0)
+VOLUME = 0.9  
+
+engine.setProperty('rate', SPEAKING_RATE)
+engine.setProperty('volume', VOLUME)
+
+# Optional: Print current voice info
+print(f"Voice: {voices[VOICE_INDEX].name}")
+print(f"Rate: {SPEAKING_RATE} WPM | Volume: {VOLUME}")
+
+
+# Personality Traits Configuration
+PERSONALITY_FILE = "personality_data.json"
+
+class PersonalityLearner:
+    """Manages personality traits and learns from user feedback"""
+    
+    def __init__(self):
+        self.traits = {
+            "formality": 0.5,      # 0 = casual, 1 = formal
+            "verbosity": 0.5,      # 0 = concise, 1 = detailed
+            "humor": 0.5,          # 0 = serious, 1 = humorous
+            "empathy": 0.5,        # 0 = direct, 1 = empathetic
+            "enthusiasm": 0.5      # 0 = calm, 1 = enthusiastic
+        }
+        self.interaction_history = []
+        self.total_interactions = 0
+        self.satisfaction_scores = []
+        self.load_personality()
+    
+    def load_personality(self):
+        """Load personality data from file"""
+        if os.path.exists(PERSONALITY_FILE):
+            try:
+                with open(PERSONALITY_FILE, 'r') as f:
+                    data = json.load(f)
+                    self.traits = data.get('traits', self.traits)
+                    self.interaction_history = data.get('history', [])
+                    self.total_interactions = data.get('total', 0)
+                    self.satisfaction_scores = data.get('scores', [])
+                    print("Personality data loaded successfully!")
+            except Exception as e:
+                print(f"Error loading personality data: {e}")
+    
+    def save_personality(self):
+        """Save personality data to file"""
+        data = {
+            'traits': self.traits,
+            'history': self.interaction_history[-50:], # 50 messages that are stored
+            'total': self.total_interactions,
+            'scores': self.satisfaction_scores[-75:]  # 75 points need for the meaaeging score
+        }
+        try:
+            with open(PERSONALITY_FILE, 'w') as f:
+                json.dump(data, f, indent=2)
+        except Exception as e:
+            print(f"Error saving personality data: {e}")
+    
+    def record_interaction(self, command_type, satisfaction):
+        """Record an interaction and adjust personality"""
+        self.total_interactions += 1
+        self.satisfaction_scores.append(satisfaction)
+        
+        interaction = {
+            'timestamp': datetime.datetime.now().isoformat(),
+            'command': command_type,
+            'satisfaction': satisfaction,
+            'traits_snapshot': self.traits.copy()
+        }
+        self.interaction_history.append(interaction)
+        
+        # Adjust personality based on satisfaction
+        self.adjust_personality(satisfaction)
+        self.save_personality()
+    
+    def adjust_personality(self, satisfaction):
+        """Adjust personality traits based on satisfaction (1-5 scale)"""
+        # Learning rate: how much to adjust
+        learning_rate = 0.25
+        
+        if satisfaction >= 4:  # Positive feedback
+            # Reinforce current traits slightly
+            pass  # Current traits are working
+        elif satisfaction <= 2:  # Negative feedback
+            # Try adjusting traits in different direction
+            adjustments = {
+                "formality": random.choice([-learning_rate, learning_rate]),
+                "verbosity": random.choice([-learning_rate, learning_rate]),
+                "humor": random.choice([-learning_rate, learning_rate]),
+                "empathy": random.choice([-learning_rate, learning_rate]),
+                "enthusiasm": random.choice([-learning_rate, learning_rate])
+            }
+            
+            for trait, adjustment in adjustments.items():
+                self.traits[trait] = max(0, min(1, self.traits[trait] + adjustment))
+    
+    def get_greeting(self):
+        """Generate greeting based on personality"""
+        greetings = []
+        
+        if self.traits['formality'] > 0.6:
+            greetings = ["Good day", "Greetings", "Hello"]
+        else:
+            greetings = ["Hey", "Hi there", "What's up"]
+        
+        if self.traits['enthusiasm'] > 0.6:
+            greetings = [g + "!" for g in greetings]
+        
+        base = random.choice(greetings)
+        
+        if self.traits['empathy'] > 0.6:
+            return f"{base} Tony, I hope you're having a wonderful day! How can I assist you?"
+        else:
+            return f"{base} Tony, how can I help you?"
+    
+    def format_response(self, base_response, response_type="general"):
+        """Format response based on personality traits"""
+        response = base_response
+        
+        # Add enthusiasm
+        if self.traits['enthusiasm'] > 0.7 and random.random() > 0.5:
+            enthusiasm_words = ["Absolutely", "Certainly", "Of course", "Sure thing"]
+            response = f"{random.choice(enthusiasm_words)}! {response}"
+        
+        # Add humor for certain responses
+        if self.traits['humor'] > 0.6 and response_type == "general" and random.random() > 0.7:
+            humor_additions = [
+                " I'm on it like a car bonnet!",
+                " Easy peasy!",
+                " Consider it done!"
+            ]
+            response += random.choice(humor_additions)
+        
+        # Add empathy
+        if self.traits['empathy'] > 0.6 and response_type == "error":
+            empathy_phrases = [
+                "I apologize for the confusion. ",
+                "Sorry about that! ",
+                "My apologies. "
+            ]
+            response = random.choice(empathy_phrases) + response
+        
+        return response
+    
+    def get_stats(self):
+        """Get personality statistics"""
+        avg_satisfaction = sum(self.satisfaction_scores) / len(self.satisfaction_scores) if self.satisfaction_scores else 0
+        return f"""
+        Total interactions: {self.total_interactions}
+        Average satisfaction: {avg_satisfaction:.2f}/5
+        
+        Current personality traits:
+        Formality: {self.traits['formality']:.2f}
+        Verbosity: {self.traits['verbosity']:.2f}
+        Humor: {self.traits['humor']:.2f}
+        Empathy: {self.traits['empathy']:.2f}
+        Enthusiasm: {self.traits['enthusiasm']:.2f}
+        """
+
+# Initialize personality learner
+personality = PersonalityLearner()
+
+#text2speak
+def speak(text):
+    
+    print(f"Assistant: {text}")
+    engine.say(text)
+    engine.runAndWait()
+
+def listen():
+    """Listen for voice commands"""
+    recognizer = sr.Recognizer()
+    with sr.Microphone() as source:
+        print("Listening...")
+        recognizer.adjust_for_ambient_noise(source, duration=0.6) # adjusting originally 0.5
+        recognizer.pause_threshold = 1.0
+        
+        try:
+            audio = recognizer.listen(source, timeout=10, phrase_time_limit=10)
+        except sr.WaitTimeoutError:
+            return ""
+    
+    try:
+        command = recognizer.recognize_google(audio).lower()
+        print(f"You said: {command}")
+        return command
+    except sr.UnknownValueError:
+        speak(personality.format_response("Sorry, I didn't catch that.", "error"))
+        return ""
+    except sr.RequestError:
+        speak(personality.format_response("Could not connect to Google Speech Recognition service.", "error"))
+        return ""
+
+def get_satisfaction_rating():
+    """Ask user for satisfaction rating"""
+    speak("How satisfied are you with my response? Please rate from 1 to 5.")
+    print("(You can also type the rating: 1, 2, 3, 4, or 5)")
+    
+    max_attempts = 3
+    for attempt in range(max_attempts):
+        rating_input = listen()
+        
+        # Try to extract number from speech
+        for num in ['one', 'two', 'three', 'four', 'five', '1', '2', '3', '4', '5']:
+            if num in rating_input:
+                rating_map = {
+                    'one': 1, '1': 1,
+                    'two': 2, '2': 2,
+                    'three': 3, '3': 3,
+                    'four': 4, '4': 4,
+                    'five': 5, '5': 5
+                }
+                return rating_map[num]
+        
+        if attempt < max_attempts - 1:
+            speak("I didn't catch that. Please say a number from 1 to 5.")
+            
+    
+    # Default to neutral if no rating provided
+    print("No rating provided, defaulting to 3")
+    return 3
+
+def execute_command(command):
+    """Execute various voice commands"""
+    command_type = "general"
+    
+    if "time" in command:
+        command_type = "time"
+        time = datetime.datetime.now().strftime("%I:%M %p")
+        response = personality.format_response(f"The current time is {time}", command_type)
+        speak(response)
+    
+    elif "date" in command:
+        command_type = "date"
+        date = datetime.datetime.now().strftime("%B %d, %Y")
+        response = personality.format_response(f"Today is {date}", command_type)
+        speak(response)
+    
+    elif "day" in command:
+        command_type = "day"
+        day = datetime.datetime.now().strftime("%A")
+        response = personality.format_response(f"Today is {day}", command_type)
+        speak(response)
+    
+    elif "search for" in command or "search" in command:
+        command_type = "search"
+        query = command.replace("search for", "").replace("search", "").strip()
+        if query:
+            response = personality.format_response(f"Searching for {query}", command_type)
+            speak(response)
+            pywhatkit.search(query)
+        else:
+            speak("What would you like me to search for?")
+    
+    elif "play" in command or "play a song" in command:
+        command_type = "play"
+        song = command.replace("play", "").strip()
+        if song:
+            response = personality.format_response(f"Playing {song} on YouTube", command_type)
+            speak(response)
+            pywhatkit.playonyt(song)
+        else:
+            speak("What would you like me to play?")
+    
+    elif "wikipedia" in command or "wiki" in command :
+        command_type = "wikipedia"
+        topic = command.replace("wikipedia", "").replace("wiki", "").strip()
+        if topic:
+            try:
+                speak(personality.format_response(f"Searching Wikipedia for {topic}", command_type))
+                summary = wikipedia.summary(topic, sentences=2 if personality.traits['verbosity'] > 0.5 else 1)
+                speak(summary)
+            except wikipedia.exceptions.DisambiguationError as e:
+                speak(f"Multiple results found. Please be more specific.")
+            except wikipedia.exceptions.PageError:
+                speak(personality.format_response("Sorry, I couldn't find that topic on Wikipedia.", "error"))
+            except Exception as e:
+                speak(personality.format_response("An error occurred while searching Wikipedia.", "error"))
+    
+    elif "open google" in command:
+        command_type = "open"
+        speak(personality.format_response("Opening Google", command_type))
+        webbrowser.open("https://www.google.com")
+    
+    elif "open youtube" in command:
+        command_type = "open"
+        speak(personality.format_response("Opening YouTube", command_type))
+        webbrowser.open("https://www.youtube.com")
+    
+    elif "joke" in command:
+        command_type = "joke"
+        jokes = [
+            "Why don't scientists trust atoms? Because they make up everything!",
+            "What do you call a bear with no teeth? A gummy bear!",
+            "Why did the scarecrow win an award? He was outstanding in his field!"
+        ]
+        if personality.traits['humor'] > 0.5:
+            speak(random.choice(jokes))
+        else:
+            speak("I don't have any jokes at the moment.")
+    
+    elif "personality" in command or "stats" in command:
+        command_type = "stats"
+        speak("Here are my personality statistics")
+        print(personality.get_stats())
+        speak(f"I've had {personality.total_interactions} interactions so far.")
+    
+    elif "hello" in command or "hi" in command:
+        command_type = "greeting"
+        greetings = ["Hello! How can I help you?", "Hi there! What can I do for you?"]
+        speak(personality.format_response(random.choice(greetings), command_type))
+    
+    elif "how are you" in command:
+        command_type = "greeting"
+        speak(personality.format_response("I'm doing great, thank you for asking! How can I assist you?", command_type))
+    
+    elif "thank you" in command or "thanks" in command:
+        command_type = "thanks"
+        responses = ["You're welcome!", "Happy to help!", "Anytime!", "My pleasure!"]
+        speak(personality.format_response(random.choice(responses), command_type))
+    
+    elif "stop" in command or "exit" in command or "quit" in command or "goodbye" in command:
+        command_type = "exit"
+        speak("Goodbye! Have a great day!")
+        return False, command_type
+    
+    elif "help" in command or "what can you do" in command:
+        command_type = "help"
+        help_text = """I can help you with the following:
+        Tell time and date,
+        Search the web,
+        Play videos on YouTube,
+        Search Wikipedia,
+        Open websites,
+        Tell jokes,
+        Show my personality stats,
+        And much more!"""
+        speak(help_text)
+
+    elif "stop" in command or "exit" in command or "quit" in command or "goodbye" in command or "shutdown" in command:
+        command_type = "exit"
+        shutdown_phrases = [
+            "Goodbye! Have a great day!",
+            "See you later! Take care!",
+            "Shutting down now. It was great helping you!",
+            "Goodbye Collins! Until next time!"
+        ]
+        speak(personality.format_response(random.choice(shutdown_phrases), command_type))
+        
+        # Save final personality state
+        personality.save_personality()
+        print("\n" + "="*50)
+        print("SHUTDOWN SUMMARY")
+        print("="*50)
+        print(personality.get_stats())
+        print("="*50)
+        print("All data saved. Goodbye!")
+        
+    
+    else:
+        command_type = "unknown"
+        speak(personality.format_response("I didn't understand that command. Say 'help' to know what I can do.", "error"))
+    
+    return True, command_type
+
+def main():
+    """Main program loop"""
+    speak(personality.get_greeting())
+    
+    running = True
+    while running:
+        command = listen()
+        if command:
+             #tesing 
+            running, command_type = execute_command(command)
+            speak(command) # tesing if i can fix the speaking problem from here 
+            
+            if running and command_type not in ["unknown", "exit", "help"]:
+                # Get satisfaction rating
+                rating = get_satisfaction_rating()
+                personality.record_interaction(command_type, rating)
+                
+                
+                if rating >= 4:
+                    speak("Thank you for the feedback!")
+                elif rating <= 2:
+                    speak("I'll try to improve. Thank you for letting me know.")
+                else:
+                    speak("Thanks for the feedback!")
+
+if __name__ == "__main__":
+    try:
+        main()
+    except KeyboardInterrupt:
+        speak("Shutting down. Goodbye!")
+    except Exception as e:
+        print(f"An error occurred: {e}")
+        speak("An unexpected error occurred. Please restart the assistant.")
